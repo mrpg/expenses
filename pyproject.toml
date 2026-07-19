@@ -1,0 +1,40 @@
+[project]
+name = "expenses"
+version = "0.1.0"
+description = "Track daily spending against a monthly budget"
+readme = "README.md"
+authors = [
+    { name = "Max R. P. Grossmann", email = "m@max.pm" },
+]
+requires-python = ">=3.10"
+license = "0BSD"
+license-files = ["LICENSE"]
+dependencies = [
+    "click>=8.1,<9",
+]
+
+[project.urls]
+Homepage = "https://github.com/mrpg/expenses"
+Repository = "https://github.com/mrpg/expenses"
+Issues = "https://github.com/mrpg/expenses/issues"
+
+[dependency-groups]
+dev = [
+    "black>=25.1",
+    "mypy>=1.15",
+    "ruff>=0.11",
+]
+
+[tool.black]
+target-version = ['py310']
+
+[tool.uv]
+package = false
+python-preference = "system"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.ruff]
+target-version = "py310"
