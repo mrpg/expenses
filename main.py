@@ -180,7 +180,13 @@ def accounting(show_all: bool = False) -> None:
 
 
 @click.group(invoke_without_command=True)
-@click.option("-a", "--all", "show_all", is_flag=True, help="Show all days.")
+@click.option(
+    "-a",
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="Show all days (until today).",
+)
 @click.pass_context
 def cli(ctx: click.Context, show_all: bool) -> None:
     """Track daily expenses. Without a command, shows the report."""
