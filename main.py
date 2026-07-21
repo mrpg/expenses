@@ -52,8 +52,8 @@ class DecimalType(click.ParamType[Decimal]):
         except InvalidOperation:
             self.fail(f"{value!r} is not a valid amount.", param, ctx)
 
-        if not amount.is_finite() or amount <= 0:
-            self.fail(f"{value!r} is not a finite, positive amount.", param, ctx)
+        if not amount.is_finite() or amount == 0:
+            self.fail(f"{value!r} is not a finite, non-zero amount.", param, ctx)
 
         return amount
 
@@ -154,7 +154,10 @@ def print_day(day: date, highlighted_expense: int | None = None) -> None:
 
     for index, (amount, description) in enumerate(expenditures(day)):
         marker = "***" if index == highlighted_expense else None
-        prettyprint("-", amount, description, marker)
+        if amount < 0:
+            prettyprint("+", -amount, description, marker)
+        else:
+            prettyprint("-", amount, description, marker)
 
     prettyprint("D", day_net(day))
 
@@ -185,7 +188,7 @@ def cli(ctx: click.Context, show_all: bool) -> None:
         accounting(show_all)
 
 
-@cli.command()
+@cli.command(context_settings={"ignore_unknown_options": True})
 @click.argument("amount", type=DecimalType())
 @click.argument("description")
 @click.option(
@@ -197,7 +200,7 @@ def cli(ctx: click.Context, show_all: bool) -> None:
     help="Day the expense belongs to.",
 )
 def add(amount: Decimal, description: str, date_: datetime) -> None:
-    """Add an expense, e.g.: add 9.50 lunch"""
+    """Add an expense or credit, e.g.: add 9.50 lunch or add -5 subsidy."""
     day = date_.date()
 
     with open(EXPENSES, "a", newline="") as f:

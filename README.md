@@ -46,6 +46,7 @@ When your data is in the repository directory, run the tool through `uv`:
 
 ```console
 $ uv run main.py add 9.50 lunch   # record an expense (today)
+$ uv run main.py add -5 subsidy   # record a credit (today)
 $ uv run main.py                  # report for today plus totals
 $ uv run main.py -a               # report for all days since start
 ```
