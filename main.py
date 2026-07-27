@@ -61,6 +61,21 @@ class DecimalType(click.ParamType[Decimal]):
         return amount
 
 
+def parse_expense_pairs(
+    ctx: click.Context, param: click.Parameter, values: tuple[str, ...]
+) -> tuple[tuple[Decimal, str], ...]:
+    if len(values) % 2:
+        raise click.BadParameter(
+            "each amount must be followed by a description.", ctx=ctx, param=param
+        )
+
+    amount_type = DecimalType()
+    return tuple(
+        (amount_type.convert(amount, param, ctx), description)
+        for amount, description in zip(values[::2], values[1::2])
+    )
+
+
 def budget() -> Decimal:
     config_ = config()
     income = sum(config_["income"].values(), start=Decimal(0))
@@ -161,11 +176,11 @@ def render_report(sections: list[list[Row]]) -> None:
             click.echo("".join(parts))
 
 
-def day_rows(day: date, highlighted_expense: int | None = None) -> list[Row]:
+def day_rows(day: date, highlighted_expenses: range = range(0)) -> list[Row]:
     rows = [Row("+", daily_budget(), day.isoformat())]
 
     for index, (amount, description) in enumerate(expenditures(day)):
-        marker = "***" if index == highlighted_expense else None
+        marker = "***" if index in highlighted_expenses else None
         if amount < 0:
             rows.append(Row("+", -amount, description, marker))
         else:
@@ -207,8 +222,13 @@ def cli(ctx: click.Context, show_all: bool) -> None:
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
-@click.argument("amount", type=DecimalType())
-@click.argument("description")
+@click.argument(
+    "expense_pairs",
+    nargs=-1,
+    required=True,
+    metavar="[AMOUNT DESCRIPTION]...",
+    callback=parse_expense_pairs,
+)
 @click.option(
     "--date",
     "date_",
@@ -217,8 +237,8 @@ def cli(ctx: click.Context, show_all: bool) -> None:
     show_default=True,
     help="Day the expense belongs to.",
 )
-def add(amount: Decimal, description: str, date_: datetime) -> None:
-    """Add an expense or credit, e.g.: add 9.50 lunch or add -5 subsidy."""
+def add(expense_pairs: tuple[tuple[Decimal, str], ...], date_: datetime) -> None:
+    """Add expenses or credits as AMOUNT DESCRIPTION pairs."""
     day = date_.date()
 
     with open(EXPENSES, "a", newline="") as f:
@@ -227,11 +247,15 @@ def add(amount: Decimal, description: str, date_: datetime) -> None:
         if f.tell() == 0:
             writer.writerow(HEADER)
 
-        writer.writerow([day.isoformat(), f"{amount:.2f}", description])
+        writer.writerows(
+            [day.isoformat(), f"{amount:.2f}", description]
+            for amount, description in expense_pairs
+        )
 
     invalidate()
-    new_entry = len(expenditures(day)) - 1
-    render_report([day_rows(day, highlighted_expense=new_entry), total_rows()])
+    entry_count = len(expenditures(day))
+    new_entries = range(entry_count - len(expense_pairs), entry_count)
+    render_report([day_rows(day, highlighted_expenses=new_entries), total_rows()])
 
 
 @cli.command()

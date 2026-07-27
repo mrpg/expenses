@@ -57,6 +57,12 @@ To record a past or future expense, use `--date`:
 $ uv run main.py add --date 2026-07-01 20 gift
 ```
 
+You can also record multiple expenses:
+
+```console
+$ uv run main.py add 9.50 lunch 3 coffee
+```
+
 ## Tip: wrapper scripts
 
 It is often better to keep private financial data outside the source repository. Since the tool works on the current directory, you can create little shell scripts in `~/.local/bin/` (or anywhere else in your `$PATH`) that `cd` into your data directory first. `uv run --project` selects this project's environment without changing that working directory:
