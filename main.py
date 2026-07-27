@@ -231,5 +231,26 @@ def report(show_all: bool) -> None:
     accounting(show_all)
 
 
+@cli.command()
+def info() -> None:
+    """Show monthly income, costs, and daily budget."""
+    config_ = config()
+    income = sum(config_["income"].values(), start=Decimal(0))
+    costs = sum(config_["costs"].values(), start=Decimal(0))
+
+    for name, amount in config_["income"].items():
+        prettyprint("+", amount, name)
+    prettyprint("=", income, "total income")
+
+    click.echo()
+    for name, amount in config_["costs"].items():
+        prettyprint("-", amount, name)
+    prettyprint("=", -costs, "total costs")
+
+    click.echo()
+    click.echo(click.style("─" * 40, dim=True))
+    prettyprint("D", daily_budget(), "daily budget")
+
+
 if __name__ == "__main__":
     cli()
