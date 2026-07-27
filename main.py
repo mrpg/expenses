@@ -3,11 +3,12 @@
 """Track daily expenses against a monthly budget."""
 
 import csv
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from functools import cache
 from json import load
-from typing import TypedDict, cast
+from typing import Literal, TypeAlias, TypedDict, cast
 
 import click
 
@@ -18,6 +19,8 @@ EXPENSES = "expenses.csv"
 HEADER = ("date", "amount", "description")
 
 TODAY = date.today()
+
+Sign: TypeAlias = Literal["+", "-", "D", "=", "~"]
 
 
 class Config(TypedDict):
@@ -118,65 +121,74 @@ def invalidate() -> None:
         precalculated.cache_clear()
 
 
-def prettyprint(
-    sign: str,
-    amount: Decimal,
-    description: str | None = None,
-    marker: str | None = None,
-) -> None:
-    if sign in ("=", "~", "D"):
-        color = "green" if amount >= 0 else "red"
-        sign_s = click.style(sign, fg=color, bold=True)
-        amount_s = click.style(f"{amount:.2f}", fg=color, bold=True)
-    elif sign == "+":
-        sign_s = click.style(sign, fg="green")
-        amount_s = click.style(f"{amount:.2f}", fg="green")
-    else:
-        sign_s = click.style(sign, fg="red")
-        amount_s = click.style(f"{amount:.2f}", fg="red")
-
-    fields = [sign_s, amount_s]
-
-    if description:
-        if sign == "+":
-            fields.append(click.style(description, fg="cyan"))
-        else:
-            fields.append(click.style(description, fg="yellow"))
-
-    if marker:
-        fields.append(click.style(marker, bold=True))
-
-    click.echo("\t".join(fields))
+@dataclass(frozen=True, slots=True)
+class Row:
+    sign: Sign
+    amount: Decimal
+    description: str | None = None
+    marker: str | None = None
 
 
-def print_day(day: date, highlighted_expense: int | None = None) -> None:
-    prettyprint("+", daily_budget(), day.isoformat())
+def render_report(sections: list[list[Row]]) -> None:
+    width = max(len(f"{row.amount:.2f}") for rows in sections for row in rows)
+
+    for section_index, rows in enumerate(sections):
+        if section_index:
+            click.echo()
+        if section_index == len(sections) - 1:
+            click.echo(click.style("─" * (width + 4), dim=True))
+
+        for row in rows:
+            amount_str = f"{row.amount:.2f}"
+            is_summary = row.sign in ("=", "~", "D")
+            is_positive = row.amount >= 0 if is_summary else row.sign == "+"
+            color = "green" if is_positive else "red"
+            bold = True if is_summary else None
+            sign_s = click.style(row.sign, fg=color, bold=bold)
+            amount_s = click.style(amount_str.rjust(width), fg=color, bold=bold)
+
+            parts = [sign_s, "   ", amount_s]
+
+            if row.description:
+                color = "cyan" if row.sign == "+" else "yellow"
+                parts.append("   ")
+                parts.append(click.style(row.description, fg=color))
+
+            if row.marker:
+                parts.append("   ")
+                parts.append(click.style(row.marker, bold=True))
+
+            click.echo("".join(parts))
+
+
+def day_rows(day: date, highlighted_expense: int | None = None) -> list[Row]:
+    rows = [Row("+", daily_budget(), day.isoformat())]
 
     for index, (amount, description) in enumerate(expenditures(day)):
         marker = "***" if index == highlighted_expense else None
         if amount < 0:
-            prettyprint("+", -amount, description, marker)
+            rows.append(Row("+", -amount, description, marker))
         else:
-            prettyprint("-", amount, description, marker)
+            rows.append(Row("-", amount, description, marker))
 
-    prettyprint("D", day_net(day))
+    rows.append(Row("D", day_net(day)))
+    return rows
 
 
-def print_totals() -> None:
-    click.echo(click.style("─" * 40, dim=True))
-    prettyprint("=", balance())
-
-    if day_nets():
-        prettyprint("~", balance() / len(day_nets()))
+def total_rows() -> list[Row]:
+    total = balance()
+    rows = [Row("=", total)]
+    nets = day_nets()
+    if nets:
+        rows.append(Row("~", total / len(nets)))
+    return rows
 
 
 def accounting(show_all: bool = False) -> None:
-    days = day_nets() if show_all else {TODAY: day_net(TODAY)}
-    for day in days:
-        print_day(day)
-        click.echo()
-
-    print_totals()
+    days = day_nets().keys() if show_all else (TODAY,)
+    sections = [day_rows(day) for day in days]
+    sections.append(total_rows())
+    render_report(sections)
 
 
 @click.group(invoke_without_command=True)
@@ -219,9 +231,7 @@ def add(amount: Decimal, description: str, date_: datetime) -> None:
 
     invalidate()
     new_entry = len(expenditures(day)) - 1
-    print_day(day, highlighted_expense=new_entry)
-    click.echo()
-    print_totals()
+    render_report([day_rows(day, highlighted_expense=new_entry), total_rows()])
 
 
 @cli.command()
@@ -238,18 +248,13 @@ def info() -> None:
     income = sum(config_["income"].values(), start=Decimal(0))
     costs = sum(config_["costs"].values(), start=Decimal(0))
 
-    for name, amount in config_["income"].items():
-        prettyprint("+", amount, name)
-    prettyprint("=", income, "total income")
+    income_rows = [Row("+", amount, name) for name, amount in config_["income"].items()]
+    income_rows.append(Row("=", income, "total income"))
 
-    click.echo()
-    for name, amount in config_["costs"].items():
-        prettyprint("-", amount, name)
-    prettyprint("=", -costs, "total costs")
+    cost_rows = [Row("-", amount, name) for name, amount in config_["costs"].items()]
+    cost_rows.append(Row("=", -costs, "total costs"))
 
-    click.echo()
-    click.echo(click.style("─" * 40, dim=True))
-    prettyprint("D", daily_budget(), "daily budget")
+    render_report([income_rows, cost_rows, [Row("D", daily_budget(), "daily budget")]])
 
 
 if __name__ == "__main__":
