@@ -146,6 +146,15 @@ class Row:
 
 def render_report(sections: list[list[Row]]) -> None:
     width = max(len(f"{row.amount:.2f}") for rows in sections for row in rows)
+    desc_width = max(
+        (
+            len(row.description)
+            for rows in sections
+            for row in rows
+            if row.marker and row.description
+        ),
+        default=0,
+    )
 
     for section_index, rows in enumerate(sections):
         if section_index:
@@ -166,8 +175,11 @@ def render_report(sections: list[list[Row]]) -> None:
 
             if row.description:
                 color = "cyan" if row.sign == "+" else "yellow"
+                desc = (
+                    row.description.ljust(desc_width) if row.marker else row.description
+                )
                 parts.append("   ")
-                parts.append(click.style(row.description, fg=color))
+                parts.append(click.style(desc, fg=color))
 
             if row.marker:
                 parts.append("   ")
