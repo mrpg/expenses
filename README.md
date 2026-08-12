@@ -42,47 +42,49 @@ Expenses are stored next to it in a plain `expenses.csv`, created automatically.
 
 ## Usage
 
-When your data is in the repository directory, run the tool through `uv`:
+When your data is in the repository directory, run the installed entry point through
+`uv`:
 
 ```console
-$ uv run main.py add 9.50 lunch   # record an expense (today)
-$ uv run main.py add -5 subsidy   # record a credit (today)
-$ uv run main.py                  # report for today plus totals
-$ uv run main.py -a               # report for all days since start
+$ uv run expenses add 9.50 lunch   # record an expense (today)
+$ uv run expenses add -5 subsidy   # record a credit (today)
+$ uv run expenses                  # report for today plus totals
+$ uv run expenses -a               # report for all days since start
 ```
 
 To record a past or future expense, use `--date`:
 
 ```console
-$ uv run main.py add --date 2026-07-01 20 gift
+$ uv run expenses add --date 2026-07-01 20 gift
 ```
 
 You can also record multiple expenses:
 
 ```console
-$ uv run main.py add 9.50 lunch 3 coffee
+$ uv run expenses add 9.50 lunch 3 coffee
 ```
 
 ## Tip: wrapper scripts
 
-It is often better to keep private financial data outside the source repository. Since the tool works on the current directory, you can create little shell scripts in `~/.local/bin/` (or anywhere else in your `$PATH`) that `cd` into your data directory first. `uv run --project` selects this project's environment without changing that working directory:
+It is often better to keep private financial data outside the source repository. Use
+`--dir` to select the directory containing `config.json` and `expenses.csv`. You can
+create little shell scripts in `~/.local/bin/` (or anywhere else in your `$PATH`),
+and use `uv run --project` to select this project's environment:
 
 ```bash
 #!/usr/bin/env bash
 
-cd ~/path/to/your/data || exit 2
-
 EXPENSES_PROJECT=/path/to/this/repo
-exec uv run --project "$EXPENSES_PROJECT" "$EXPENSES_PROJECT/main.py" "$@"
+EXPENSES_DATA=~/path/to/your/data
+exec uv run --project "$EXPENSES_PROJECT" expenses --dir "$EXPENSES_DATA" "$@"
 ```
 
 ```bash
 #!/usr/bin/env bash
 
-cd ~/path/to/your/data || exit 2
-
 EXPENSES_PROJECT=/path/to/this/repo
-exec uv run --project "$EXPENSES_PROJECT" "$EXPENSES_PROJECT/main.py" add "$@"
+EXPENSES_DATA=~/path/to/your/data
+exec uv run --project "$EXPENSES_PROJECT" expenses --dir "$EXPENSES_DATA" add "$@"
 ```
 
 Name them `E` and `E+` and recording an expense becomes `E+ 9.50 lunch` — extraordinarily convenient. Moreover, `E` will show you today's report, and `E -a` will show the entire record.

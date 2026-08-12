@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from functools import cache
 from json import load
+from pathlib import Path
 from typing import Literal, TypeAlias, TypedDict, cast
 
 import click
@@ -18,7 +19,9 @@ CENT = Decimal("0.01")
 EXPENSES = "expenses.csv"
 HEADER = ("date", "amount", "description")
 
-TODAY = date.today()
+TODAY = datetime.now().astimezone().date()
+
+_data_dir = Path(".")
 
 Sign: TypeAlias = Literal["+", "-", "D", "=", "~"]
 
@@ -32,11 +35,12 @@ class Config(TypedDict):
 
 @cache
 def config() -> Config:
+    path = _data_dir / "config.json"
     try:
-        with open("config.json") as f:
+        with open(path) as f:
             return cast(Config, load(f, parse_float=Decimal, parse_int=Decimal))
     except FileNotFoundError:
-        raise SystemExit("config.json not found in the current directory.")
+        raise SystemExit(f"{path} not found.")
 
 
 @cache
@@ -94,18 +98,16 @@ def all_expenditures() -> dict[date, list[tuple[Decimal, str]]]:
     expenditures_: dict[date, list[tuple[Decimal, str]]] = {}
 
     try:
-        f = open(EXPENSES, newline="")
+        with open(_data_dir / EXPENSES, newline="") as f:
+            reader = csv.reader(f)
+            next(reader, None)
+
+            for date_, amount, description in reader:
+                expenditures_.setdefault(date.fromisoformat(date_), []).append(
+                    (Decimal(amount), description)
+                )
     except FileNotFoundError:
         return expenditures_
-
-    with f:
-        reader = csv.reader(f)
-        next(reader, None)
-
-        for date_, amount, description in reader:
-            expenditures_.setdefault(date.fromisoformat(date_), []).append(
-                (Decimal(amount), description)
-            )
 
     return expenditures_
 
@@ -132,8 +134,15 @@ def balance() -> Decimal:
 
 
 def invalidate() -> None:
-    for precalculated in (all_expenditures, day_nets, balance):
-        precalculated.cache_clear()
+    for fn in (config, start_date, daily_budget, all_expenditures, day_nets, balance):
+        fn.cache_clear()
+
+
+def configure(*, data_dir: str | Path | None = None) -> None:
+    """Set the directory containing config.json and expenses.csv (default: cwd)."""
+    global _data_dir
+    _data_dir = Path(".") if data_dir is None else Path(data_dir)
+    invalidate()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +153,7 @@ class Row:
     marker: str | None = None
 
 
-def render_report(sections: list[list[Row]]) -> None:
+def render_report(sections: list[list[Row]], color: bool = True) -> str:
     width = max(len(f"{row.amount:.2f}") for rows in sections for row in rows)
     desc_width = max(
         (
@@ -156,36 +165,40 @@ def render_report(sections: list[list[Row]]) -> None:
         default=0,
     )
 
+    lines: list[str] = []
     for section_index, rows in enumerate(sections):
         if section_index:
-            click.echo()
+            lines.append("")
         if section_index == len(sections) - 1:
-            click.echo(click.style("─" * (width + 4), dim=True))
+            lines.append(click.style("─" * (width + 4), dim=True))
 
         for row in rows:
             amount_str = f"{row.amount:.2f}"
             is_summary = row.sign in ("=", "~", "D")
             is_positive = row.amount >= 0 if is_summary else row.sign == "+"
-            color = "green" if is_positive else "red"
+            fg = "green" if is_positive else "red"
             bold = True if is_summary else None
-            sign_s = click.style(row.sign, fg=color, bold=bold)
-            amount_s = click.style(amount_str.rjust(width), fg=color, bold=bold)
+            sign_s = click.style(row.sign, fg=fg, bold=bold)
+            amount_s = click.style(amount_str.rjust(width), fg=fg, bold=bold)
 
             parts = [sign_s, "   ", amount_s]
 
             if row.description:
-                color = "cyan" if row.sign == "+" else "yellow"
+                fg = "cyan" if row.sign == "+" else "yellow"
                 desc = (
                     row.description.ljust(desc_width) if row.marker else row.description
                 )
                 parts.append("   ")
-                parts.append(click.style(desc, fg=color))
+                parts.append(click.style(desc, fg=fg))
 
             if row.marker:
                 parts.append("   ")
                 parts.append(click.style(row.marker, bold=True))
 
-            click.echo("".join(parts))
+            lines.append("".join(parts))
+
+    result = "\n".join(lines)
+    return result if color else click.unstyle(result)
 
 
 def day_rows(day: date, highlighted_expenses: range = range(0)) -> list[Row]:
@@ -211,14 +224,59 @@ def total_rows() -> list[Row]:
     return rows
 
 
-def accounting(show_all: bool = False) -> None:
+def accounting(show_all: bool = False, color: bool = True) -> str:
     days = day_nets().keys() if show_all else (TODAY,)
     sections = [day_rows(day) for day in days]
     sections.append(total_rows())
-    render_report(sections)
+    return render_report(sections, color=color)
+
+
+def add_expenses(
+    expenses_list: list[tuple[Decimal, str]],
+    day: date | None = None,
+    color: bool = True,
+) -> str:
+    if day is None:
+        day = TODAY
+    with open(_data_dir / EXPENSES, "a", newline="") as f:
+        writer = csv.writer(f)
+        if f.tell() == 0:
+            writer.writerow(HEADER)
+        writer.writerows(
+            [day.isoformat(), f"{amount:.2f}", description]
+            for amount, description in expenses_list
+        )
+    invalidate()
+    entry_count = len(expenditures(day))
+    new_entries = range(entry_count - len(expenses_list), entry_count)
+    return render_report(
+        [day_rows(day, highlighted_expenses=new_entries), total_rows()],
+        color=color,
+    )
+
+
+def info_report(color: bool = True) -> str:
+    config_ = config()
+    income = sum(config_["income"].values(), start=Decimal(0))
+    costs = sum(config_["costs"].values(), start=Decimal(0))
+    income_rows = [Row("+", amount, name) for name, amount in config_["income"].items()]
+    income_rows.append(Row("=", income, "total income"))
+    cost_rows = [Row("-", amount, name) for name, amount in config_["costs"].items()]
+    cost_rows.append(Row("=", -costs, "total costs"))
+    return render_report(
+        [income_rows, cost_rows, [Row("D", daily_budget(), "daily budget")]],
+        color=color,
+    )
 
 
 @click.group(invoke_without_command=True)
+@click.option(
+    "--dir",
+    "data_dir",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Directory containing config.json and expenses.csv.",
+)
 @click.option(
     "-a",
     "--all",
@@ -227,10 +285,11 @@ def accounting(show_all: bool = False) -> None:
     help="Show all days (until today).",
 )
 @click.pass_context
-def cli(ctx: click.Context, show_all: bool) -> None:
+def cli(ctx: click.Context, data_dir: str | None, show_all: bool) -> None:
     """Track daily expenses. Without a command, shows the report."""
+    configure(data_dir=data_dir)
     if ctx.invoked_subcommand is None:
-        accounting(show_all)
+        click.echo(accounting(show_all))
 
 
 @cli.command(context_settings={"ignore_unknown_options": True})
@@ -251,46 +310,20 @@ def cli(ctx: click.Context, show_all: bool) -> None:
 )
 def add(expense_pairs: tuple[tuple[Decimal, str], ...], date_: datetime) -> None:
     """Add expenses or credits as AMOUNT DESCRIPTION pairs."""
-    day = date_.date()
-
-    with open(EXPENSES, "a", newline="") as f:
-        writer = csv.writer(f)
-
-        if f.tell() == 0:
-            writer.writerow(HEADER)
-
-        writer.writerows(
-            [day.isoformat(), f"{amount:.2f}", description]
-            for amount, description in expense_pairs
-        )
-
-    invalidate()
-    entry_count = len(expenditures(day))
-    new_entries = range(entry_count - len(expense_pairs), entry_count)
-    render_report([day_rows(day, highlighted_expenses=new_entries), total_rows()])
+    click.echo(add_expenses(list(expense_pairs), date_.date()))
 
 
 @cli.command()
 @click.option("-a", "--all", "show_all", is_flag=True, help="Show all days.")
 def report(show_all: bool) -> None:
     """Show the running balance since the start date."""
-    accounting(show_all)
+    click.echo(accounting(show_all))
 
 
 @cli.command()
 def info() -> None:
     """Show monthly income, costs, and daily budget."""
-    config_ = config()
-    income = sum(config_["income"].values(), start=Decimal(0))
-    costs = sum(config_["costs"].values(), start=Decimal(0))
-
-    income_rows = [Row("+", amount, name) for name, amount in config_["income"].items()]
-    income_rows.append(Row("=", income, "total income"))
-
-    cost_rows = [Row("-", amount, name) for name, amount in config_["costs"].items()]
-    cost_rows.append(Row("=", -costs, "total costs"))
-
-    render_report([income_rows, cost_rows, [Row("D", daily_budget(), "daily budget")]])
+    click.echo(info_report())
 
 
 if __name__ == "__main__":

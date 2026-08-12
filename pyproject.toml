@@ -13,6 +13,9 @@ dependencies = [
     "click>=8.1,<9",
 ]
 
+[project.scripts]
+expenses = "expenses:cli"
+
 [project.urls]
 Homepage = "https://github.com/mrpg/expenses"
 Repository = "https://github.com/mrpg/expenses"
@@ -28,8 +31,11 @@ dev = [
 [tool.black]
 target-version = ['py310']
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.uv]
-package = false
 python-preference = "system"
 
 [tool.mypy]
@@ -37,4 +43,6 @@ python_version = "3.10"
 strict = true
 
 [tool.ruff]
+extend-exclude = ["*.md", "uv.lock"]
+force-exclude = true
 target-version = "py310"
