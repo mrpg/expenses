@@ -64,6 +64,26 @@ You can also record multiple expenses:
 $ uv run expenses add 9.50 lunch 3 coffee
 ```
 
+## Python API
+
+The supported Python API consists of these functions:
+
+```python
+from expenses import accounting, add_expenses, configure, info_report
+```
+
+- `configure(*, data_dir=None)` selects the directory containing the data files.
+- `accounting(show_all=False, color=True)` returns the current accounting report.
+- `add_expenses(expenses_list, day=None, color=True)` records expenses and returns
+  the resulting report. Each expense is a `(Decimal, str)` pair.
+- `info_report(color=True)` returns the income, costs, and daily-budget report.
+
+Each reporting or writing call starts a new data context and rereads the relevant
+files. Values can be reused internally for consistency during that one call, but no
+loaded configuration or expenditure data is retained for the next call. The `cli`
+Click group is also exported as the package's console entry point; underscored names
+are internal implementation details.
+
 ## Tip: wrapper scripts
 
 It is often better to keep private financial data outside the source repository. Use
