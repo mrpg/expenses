@@ -9,6 +9,7 @@ from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from functools import cached_property
 from json import load
 from pathlib import Path
+from statistics import StatisticsError, stdev
 from typing import Literal, TypeAlias, TypedDict, cast
 
 import click
@@ -18,6 +19,7 @@ __all__ = ("accounting", "add_expenses", "cli", "configure", "info_report")
 DAY = timedelta(days=1)
 DAYS_PER_MONTH = Decimal("30.5")
 CENT = Decimal("0.01")
+Z_95 = Decimal("1.96")
 EXPENSES = "expenses.csv"
 HEADER = ("date", "amount", "description")
 
@@ -153,6 +155,7 @@ class _Row:
     amount: Decimal
     description: str | None = None
     marker: str | None = None
+    margin: Decimal | None = None
 
 
 def _render_report(sections: list[list[_Row]], color: bool = True) -> str:
@@ -184,6 +187,10 @@ def _render_report(sections: list[list[_Row]], color: bool = True) -> str:
             amount_s = click.style(amount_str.rjust(width), fg=fg, bold=bold)
 
             parts = [sign_s, "   ", amount_s]
+
+            if row.margin is not None:
+                margin_s = click.style(f" ±{row.margin:.2f}", fg=fg, bold=bold)
+                parts.append(margin_s)
 
             if row.description:
                 fg = "cyan" if row.sign == "+" else "yellow"
@@ -221,12 +228,29 @@ def _day_rows(
     return rows
 
 
+def _margin_of_error(daily_nets: list[Decimal]) -> Decimal | None:
+    """Return the 95% margin for a daily mean, in the daily nets' units.
+
+    Both the z-score and the square root of the sample count are dimensionless,
+    so the result has the same currency-per-day unit as the sample mean.
+    """
+    try:
+        standard_error = stdev(daily_nets) / Decimal(len(daily_nets)).sqrt()
+        margin = Z_95 * standard_error
+    except (ArithmeticError, StatisticsError, TypeError, ValueError):
+        return None
+
+    return margin if margin.is_finite() else None
+
+
 def _total_rows(invocation: _Invocation) -> list[_Row]:
     total = invocation.balance
     rows = [_Row("=", total)]
-    nets = invocation.day_nets
-    if nets:
-        rows.append(_Row("~", total / len(nets)))
+    daily_nets = list(invocation.day_nets.values())
+    if daily_nets:
+        day_count = Decimal(len(daily_nets))
+        daily_mean = total / day_count
+        rows.append(_Row("~", daily_mean, margin=_margin_of_error(daily_nets)))
     return rows
 
 
