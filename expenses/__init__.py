@@ -315,10 +315,12 @@ def info_report(color: bool = True) -> str:
     income_rows.append(_Row("=", income, "total income"))
     cost_rows = [_Row("-", amount, name) for name, amount in config_["costs"].items()]
     cost_rows.append(_Row("=", -costs, "total costs"))
+    savings_target = config_["savingsTarget"]
     return _render_report(
         [
             income_rows,
             cost_rows,
+            [_Row("-", savings_target, "savings target")],
             [_Row("D", invocation.daily_budget, "daily budget")],
         ],
         color=color,
