@@ -14,7 +14,14 @@ from typing import Literal, TypeAlias, TypedDict, cast
 
 import click
 
-__all__ = ("accounting", "add_expenses", "cli", "configure", "info_report")
+__all__ = (
+    "accounting",
+    "add_expenses",
+    "cli",
+    "configure",
+    "info_report",
+    "summary_report",
+)
 
 DAY = timedelta(days=1)
 DAYS_PER_MONTH = Decimal("30.5")
@@ -267,6 +274,28 @@ def accounting(show_all: bool = False, color: bool = True) -> str:
     return _render_report(sections, color=color)
 
 
+def summary_report(color: bool = True) -> str:
+    """Return expense totals by description, from the start date through today."""
+    invocation = _Invocation(_data_dir, _today())
+    start_date = invocation.start_date
+    totals: dict[str, Decimal] = {}
+    for day, expenditures in invocation.all_expenditures.items():
+        if start_date <= day <= invocation.today:
+            for amount, description in expenditures:
+                totals[description] = totals.get(description, Decimal(0)) + amount
+
+    rows = [
+        _Row("-" if amount >= 0 else "+", abs(amount), description)
+        for description, amount in sorted(
+            totals.items(), key=lambda item: (-item[1], item[0])
+        )
+    ]
+    sections = [rows] if rows else []
+    total = sum(totals.values(), start=Decimal(0))
+    sections.append([_Row("=", -total, "total expenses")])
+    return _render_report(sections, color=color)
+
+
 def add_expenses(
     expenses_list: list[tuple[Decimal, str]],
     day: date | None = None,
@@ -376,6 +405,12 @@ def _add(expense_pairs: tuple[tuple[Decimal, str], ...], date_: datetime) -> Non
 def _report(show_all: bool) -> None:
     """Show the running balance since the start date."""
     click.echo(accounting(show_all))
+
+
+@cli.command("summary")
+def _summary() -> None:
+    """Show expense totals by description since the start date."""
+    click.echo(summary_report())
 
 
 @cli.command("info")

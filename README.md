@@ -50,6 +50,7 @@ $ uv run expenses add 9.50 lunch   # record an expense (today)
 $ uv run expenses add -5 subsidy   # record a credit (today)
 $ uv run expenses                  # report for today plus totals
 $ uv run expenses -a               # report for all days since start
+$ uv run expenses summary          # total expenses by description since start
 ```
 
 To record a past or future expense, use `--date`:
@@ -64,16 +65,23 @@ You can also record multiple expenses:
 $ uv run expenses add 9.50 lunch 3 coffee
 ```
 
+Use `expenses summary` to combine expenses with exactly matching descriptions,
+from the configured start date through today, largest totals first. Credits reduce
+the corresponding total. For example, `add 7 aldi` and `add 15 aldi` produce one
+`aldi` row showing `22.00`.
+
 ## Python API
 
 The supported Python API consists of these functions:
 
 ```python
-from expenses import accounting, add_expenses, configure, info_report
+from expenses import accounting, add_expenses, configure, info_report, summary_report
 ```
 
 - `configure(*, data_dir=None)` selects the directory containing the data files.
 - `accounting(show_all=False, color=True)` returns the current accounting report.
+- `summary_report(color=True)` returns expense totals by description from the
+  configured start date through today.
 - `add_expenses(expenses_list, day=None, color=True)` records expenses and returns
   the resulting report. Each expense is a `(Decimal, str)` pair.
 - `info_report(color=True)` returns the income, costs, and daily-budget report.
@@ -107,7 +115,7 @@ EXPENSES_DATA=~/path/to/your/data
 exec uv run --project "$EXPENSES_PROJECT" expenses --dir "$EXPENSES_DATA" add "$@"
 ```
 
-Name them `E` and `E+` and recording an expense becomes `E+ 9.50 lunch` — extraordinarily convenient. Moreover, `E` will show you today's report, and `E -a` will show the entire record.
+Name them `E` and `E+` and recording an expense becomes `E+ 9.50 lunch` — extraordinarily convenient. Moreover, `E` will show you today's report, `E -a` will show the entire record, and `E summary` will show totals by description.
 
 ## License
 
