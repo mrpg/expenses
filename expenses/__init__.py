@@ -9,7 +9,7 @@ from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from functools import cached_property
 from json import load
 from pathlib import Path
-from statistics import StatisticsError, stdev
+from statistics import StatisticsError, mean, stdev
 from typing import Literal, TypeAlias, TypedDict, cast
 
 import click
@@ -37,6 +37,10 @@ _Sign: TypeAlias = Literal["+", "-", "D", "=", "~"]
 
 def _today() -> date:
     return datetime.now().astimezone().date()
+
+
+def _is_balance_adjustment(description: str) -> bool:
+    return description.startswith(":")
 
 
 class _Config(TypedDict):
@@ -80,14 +84,22 @@ class _Invocation:
     @cached_property
     def all_expenditures(self) -> dict[date, list[tuple[Decimal, str]]]:
         expenditures: dict[date, list[tuple[Decimal, str]]] = {}
+        path = self.data_dir / EXPENSES
 
         try:
-            with open(self.data_dir / EXPENSES, newline="") as f:
+            with open(path, newline="") as f:
                 reader = csv.reader(f)
                 next(reader, None)
 
                 for date_, amount, description in reader:
-                    expenditures.setdefault(date.fromisoformat(date_), []).append(
+                    day = date.fromisoformat(date_)
+                    if _is_balance_adjustment(description) and day < self.start_date:
+                        raise SystemExit(
+                            f"{path}:{reader.line_num}: balance adjustment "
+                            f"{description!r} on {day} precedes the start date "
+                            f"{self.start_date}."
+                        )
+                    expenditures.setdefault(day, []).append(
                         (Decimal(amount), description)
                     )
         except FileNotFoundError:
@@ -99,8 +111,12 @@ class _Invocation:
         return self.all_expenditures.get(date_, [])
 
     def day_net(self, day: date) -> Decimal:
-        spent = sum((amount for amount, _ in self.expenditures(day)), start=Decimal(0))
-        return self.daily_budget - spent
+        spending = (
+            amount
+            for amount, description in self.expenditures(day)
+            if not _is_balance_adjustment(description)
+        )
+        return self.daily_budget - sum(spending, start=Decimal(0))
 
     @cached_property
     def day_nets(self) -> dict[date, Decimal]:
@@ -112,7 +128,15 @@ class _Invocation:
 
     @cached_property
     def balance(self) -> Decimal:
-        return sum(self.day_nets.values(), start=Decimal(0))
+        adjustments = (
+            amount
+            for day in self.day_nets
+            for amount, description in self.expenditures(day)
+            if _is_balance_adjustment(description)
+        )
+        return sum(self.day_nets.values(), start=Decimal(0)) - sum(
+            adjustments, start=Decimal(0)
+        )
 
 
 class _DecimalType(click.ParamType[Decimal]):
@@ -223,15 +247,17 @@ def _day_rows(
     highlighted_expenses: range = range(0),
 ) -> list[_Row]:
     rows = [_Row("+", invocation.daily_budget, day.isoformat())]
+    adjustments: list[_Row] = []
 
     for index, (amount, description) in enumerate(invocation.expenditures(day)):
         marker = "***" if index in highlighted_expenses else None
-        if amount < 0:
-            rows.append(_Row("+", -amount, description, marker))
-        else:
-            rows.append(_Row("-", amount, description, marker))
+        entry_rows = adjustments if _is_balance_adjustment(description) else rows
+        entry_rows.append(
+            _Row("+" if amount < 0 else "-", abs(amount), description, marker)
+        )
 
     rows.append(_Row("D", invocation.day_net(day)))
+    rows.extend(adjustments)
     return rows
 
 
@@ -255,9 +281,7 @@ def _total_rows(invocation: _Invocation) -> list[_Row]:
     rows = [_Row("=", total)]
     daily_nets = list(invocation.day_nets.values())
     if daily_nets:
-        day_count = Decimal(len(daily_nets))
-        daily_mean = total / day_count
-        rows.append(_Row("~", daily_mean, margin=_margin_of_error(daily_nets)))
+        rows.append(_Row("~", mean(daily_nets), margin=_margin_of_error(daily_nets)))
     return rows
 
 
@@ -282,6 +306,8 @@ def summary_report(color: bool = True) -> str:
     for day, expenditures in invocation.all_expenditures.items():
         if start_date <= day <= invocation.today:
             for amount, description in expenditures:
+                if _is_balance_adjustment(description):
+                    continue
                 totals[description] = totals.get(description, Decimal(0)) + amount
 
     rows = [

@@ -70,6 +70,13 @@ from the configured start date through today, largest totals first. Credits redu
 the corresponding total. For example, `add 7 aldi` and `add 15 aldi` produce one
 `aldi` row showing `22.00`.
 
+A description starting with `:` records a balance adjustment. On the configured
+start date, use `add 100 :carryover-balance` to carry a deficit of 100 or
+`add -100 :carryover-balance` to carry a credit of 100. Each adjustment appears
+after that day's net (`D`) and counts once toward the running balance (`=`) from
+its entry date. The spending summary, daily net, and daily statistics use only
+ordinary expenses and credits.
+
 ## Python API
 
 The supported Python API consists of these functions:
